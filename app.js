@@ -21,10 +21,6 @@ import whatsapppRouter from "./routes/whatsappRoutes.js";
 import { runJobsCron } from "./cron/jobsCron.js";
 import { runRecruiterCron } from "./cron/recruiterCron.js";
 
-const app = express();
-app.use(cookieParser());
-app.use(express.json());
-
 const allowedOrigins = [
   "http://localhost:5173",
   "https://role-meld.onrender.com",
@@ -32,14 +28,12 @@ const allowedOrigins = [
   "http://localhost:5174",
   "http://localhost:4173",
   "https://afla-careers-frontend.onrender.com",
-  "https://alfa-careers.vercel.app"
+  "https://alfa-careers.vercel.app",
 ];
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const app = express();
 
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
+// CORS first so every response (including errors) can include headers
 app.use(
   cors({
     origin: function (origin, callback) {
@@ -50,14 +44,33 @@ app.use(
       }
     },
     credentials: true,
+    optionsSuccessStatus: 200,
   })
 );
+
+// Ensure CORS headers on all responses (e.g. when route handlers send directly)
+app.use((req, res, next) => {
+  const origin = req.get("origin");
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
+  next();
+});
+
+app.use(cookieParser());
+app.use(express.json());
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Lightweight ping route
 app.get("/ping", (req, res) => res.sendStatus(200));
 
 app.get("/", (req, res) => {
-  res.send("I am Working Bitch!");
+  res.send("I am Working");
 });
 
 // --- Cron endpoints (for external cron e.g. cron-jobs.org). Secured with CRON_SECRET. ---
@@ -118,5 +131,16 @@ app.use("/api/whatsapp", whatsapppRouter);
 
 // Ensure DB is connected (for Vercel serverless cold start and local dev)
 connectDB();
+
+// Global error handler so error responses still send CORS headers (fixes CORS errors on 5xx)
+app.use((err, req, res, next) => {
+  const origin = req.get("origin");
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
+  const status = err.status || err.statusCode || 500;
+  res.status(status).json({ error: err.message || "Internal Server Error" });
+});
 
 export default app;
